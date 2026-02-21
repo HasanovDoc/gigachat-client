@@ -1,4 +1,4 @@
-# gigachat-client2
+# gigachat-client
 
 ## Project setup
 ```
