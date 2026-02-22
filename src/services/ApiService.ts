@@ -1,4 +1,3 @@
-import GigaChat from "gigachat";
 import axios from "axios";
 
 export interface ChatResponse {
@@ -12,12 +11,6 @@ export enum ModelType {
 }
 
 export class ChatApiService {
-  private gigaClient = new GigaChat({
-    credentials: "",
-    scope: "GIGACHAT_API_PERS",
-    dangerouslyAllowBrowser: true,
-  });
-
   private config = {
     [ModelType.YandexAi]: {
       url: "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
@@ -26,34 +19,27 @@ export class ChatApiService {
     },
   };
 
-  // async regenToken(key: string) {
-  //   const giga = new GigaChat({
-  //     credentials: key,
-  //     dangerouslyAllowBrowser: true,
-  //   });
-
-  //   const response = await giga.getModels();
-
-  //   console.log(response);
-  // }
-
   async regenToken(key: string) {
     try {
-      const response = await axios.get('/giga-api/v1/models', {
-  headers: {
-    'Authorization': `Bearer ${key}`
-  }
-});
-      console.log(response.data);
+      const response = await axios.get("/api/giga-auth", {
+        headers: {
+          Authorization: `Bearer ${key}`,
+        },
+      });
+      return response.data;
     } catch (error) {
-      console.error("Ошибка при получении моделей:", error);
+      console.error(error);
     }
   }
 
   async sendMessage(model: ModelType, message: string): Promise<ChatResponse> {
     try {
       if (model === ModelType.GigaChat) {
-        return await this.sendToGigaChat(message);
+        const { data } = await axios.post("/api/chat", { message });
+        return {
+          text: data.text,
+          error: data.error,
+        };
       } else {
         return await this.sendToYandex(message);
       }
@@ -63,17 +49,6 @@ export class ChatApiService {
         error: e instanceof Error ? e.message : "Unknown error",
       };
     }
-  }
-
-  private async sendToGigaChat(message: string): Promise<ChatResponse> {
-    const response = await this.gigaClient.chat({
-      model: "GigaChat",
-      messages: [{ role: "user", content: message }],
-    });
-
-    return {
-      text: response.choices[0].message.content || "GigaChat empty response",
-    };
   }
 
   private async sendToYandex(message: string): Promise<ChatResponse> {

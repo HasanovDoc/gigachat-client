@@ -5,9 +5,14 @@
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
-    "lint": "vue-cli-service lint"
+    "lint": "vue-cli-service lint",
+    "backend": "node server.js",
+    "dev": "concurrently \"npm run backend\" \"npm run serve\""
   },
   "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
     "gigachat": "^0.0.18",
     "uuid": "^13.0.0",
     "vue": "^2.6.14",
@@ -29,7 +34,6 @@
     "eslint-config-prettier": "^8.3.0",
     "eslint-plugin-prettier": "^4.0.0",
     "eslint-plugin-vue": "^8.0.3",
-    "nitropack": "^2.13.1",
     "prettier": "^2.4.1",
     "sass": "^1.32.7",
     "sass-loader": "^12.0.0",
