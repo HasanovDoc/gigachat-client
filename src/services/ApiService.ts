@@ -19,13 +19,9 @@ export class ChatApiService {
     },
   };
 
-  async regenToken(key: string) {
+  async regenToken() {
     try {
-      const response = await axios.get("/api/giga-auth", {
-        headers: {
-          Authorization: `Bearer ${key}`,
-        },
-      });
+      const response = await axios.get("/api/giga-auth");
       return response.data;
     } catch (error) {
       console.error(error);

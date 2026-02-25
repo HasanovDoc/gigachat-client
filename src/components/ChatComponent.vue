@@ -87,9 +87,7 @@ export default Vue.extend({
       this.$store.commit("TOGGLE_THEME");
     },
     async regenToken() {
-      await apiService.regenToken(
-        ""
-      );
+      await apiService.regenToken();
     },
     async handleSend() {
       if (!this.query.trim() || this.pending) return;
@@ -231,6 +229,7 @@ export default Vue.extend({
     padding: 14px 18px;
     font-size: 1rem;
     line-height: 1.6;
+    text-align: left;
   }
 
   &.user .message-bubble {
