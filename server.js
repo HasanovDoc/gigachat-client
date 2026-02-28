@@ -4,6 +4,13 @@ const { Agent } = require("https");
 const GigaChat = require("gigachat").default;
 require("dotenv").config({ path: ".env.local" });
 
+// import express from "express";
+// import path from "path";
+// import { Agent } from "https";
+// import GigaChat from "gigachat";
+// import dotenv from "dotenv";
+// dotenv.config({ path: ".env.local" });
+
 const app = express();
 app.use(express.json());
 
@@ -88,6 +95,49 @@ app.post("/api/chat", async (req, res) => {
     res.json({ text: message.content });
   } catch (error) {
     console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/yandex", async (req, res) => {
+  try {
+    const response = await fetch(
+      "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Api-Key ${process.env.YANDEX_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          modelUri: `gpt://${process.env.YANDEX_FOLDER}/yandexgpt-lite/latest`,
+          completionOptions: {
+            stream: false,
+            temperature: 0.2,
+            maxTokens: 2000,
+          },
+          messages: [
+            {
+              role: "user",
+              text: req.body.message,
+            },
+          ],
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.log("Детальная ошибка Yandex:", JSON.stringify(data, null, 2));
+      throw new Error(data.message || "Ошибка Yandex API");
+    }
+
+    res.json({
+      text: data.result.alternatives[0].message.text,
+    });
+  } catch (error) {
+    console.error("Yandex Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

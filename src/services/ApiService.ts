@@ -37,7 +37,12 @@ export class ChatApiService {
           error: data.error,
         };
       } else {
-        return await this.sendToYandex(message);
+        const { data } = await axios.post("/api/yandex", { message });
+        return {
+          text: data.text,
+          error: data.error,
+        };
+        // return await this.sendToYandex(message);
       }
     } catch (e) {
       return {
