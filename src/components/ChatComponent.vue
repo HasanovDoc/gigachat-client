@@ -22,7 +22,10 @@
         :key="i"
         :class="['message-bubble-wrapper', msg.role]"
       >
-        <div class="message-bubble glass-effect">{{ msg.text }}</div>
+        <div
+          class="message-bubble glass-effect"
+          v-html="renderMarkdown(msg.text)"
+        ></div>
       </div>
       <div v-if="pending" class="message-bubble-wrapper ai typing">
         <div class="message-bubble glass-effect">Печатает...</div>
@@ -57,6 +60,7 @@
 <script lang="ts">
 import Vue from "vue";
 import { apiService, ModelType } from "@/services/ApiService";
+import { marked } from "marked";
 // import { ENV } from "@/config";
 
 export default Vue.extend({
@@ -85,6 +89,10 @@ export default Vue.extend({
   methods: {
     toggleTheme() {
       this.$store.commit("TOGGLE_THEME");
+    },
+    renderMarkdown(text: string) {
+      if (!text) return "";
+      return marked.parse(text);
     },
     async regenToken() {
       await apiService.regenToken();
