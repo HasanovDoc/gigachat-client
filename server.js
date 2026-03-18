@@ -107,6 +107,24 @@ ${weatherContext}
 
 app.post("/api/yandex", async (req, res) => {
   try {
+    const userMessage = req.body.message;
+
+    const weatherContext = await getWeatherContext(userMessage);
+
+    let prompt;
+    if (weatherContext) {
+      prompt = `Используй ТОЛЬКО эти данные о погоде:
+${weatherContext}
+
+Вопрос: ${userMessage}
+Сегодня: ${TODAY}. Ответ:`;
+    } else {
+      prompt = `Пользователь спрашивает: "${userMessage}". 
+      К сожалению, в нашей базе данных нет информации на этот запрос. 
+      Ответь вежливо, что данных о погоде на этот период нет.`;
+    }
+
+    // 2. Отправляем запрос в Yandex Cloud
     const response = await fetch(
       "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
       {
@@ -125,17 +143,26 @@ app.post("/api/yandex", async (req, res) => {
           messages: [
             {
               role: "user",
-              text: req.body.message,
+              text: prompt,
             },
           ],
         }),
       }
     );
 
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(
+        `Yandex API Error: ${errorData.message || response.statusText}`
+      );
+    }
+
     const data = await response.json();
+
     res.json({ text: data.result.alternatives[0].message.text });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Yandex API Error:", error.message);
+    res.status(500).json({ error: "Ошибка нейросети Yandex" });
   }
 });
 
