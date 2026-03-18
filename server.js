@@ -19,59 +19,59 @@ const client = new GigaChat({
 
 const qdrant = new QdrantClient({ url: "http://localhost:6113" });
 
-// let extractor;
 let extractorPromise = pipeline(
   "feature-extraction",
   "Xenova/all-MiniLM-L6-v2"
 );
 
+const TODAY = new Date().toISOString().split("T")[0];
+const YESTERDAY = new Date(Date.now() - 86400000).toISOString().split("T")[0];
+
 async function getWeatherContext(userQuery) {
   try {
     const extractor = await extractorPromise;
+    const queryLower = userQuery.toLowerCase();
+    let targetDate = null;
 
-    // 1. Извлекаем дату из запроса (гггг-мм-дд)
-    const dateMatch = userQuery.match(/\d{4}-\d{2}-\d{2}/);
-    const targetDate = dateMatch ? dateMatch[0] : null;
+    if (queryLower.includes("сегодня")) {
+      targetDate = TODAY;
+    } else if (queryLower.includes("вчера")) {
+      targetDate = YESTERDAY;
+    } else {
+      const dateMatch = userQuery.match(/\d{4}-\d{2}-\d{2}/);
+      if (dateMatch) targetDate = dateMatch[0];
+    }
 
-    // 2. Генерируем вектор для семантического поиска (по городу/типу погоды)
     const output = await extractor(userQuery, {
       pooling: "mean",
       normalize: true,
     });
     const vector = Array.from(output.data);
 
-    // 3. Настраиваем поиск с жестким фильтром по дате
-    const searchOptions = {
+    const searchParams = {
       vector: vector,
-      limit: 15, // Берем все города на эту дату
+      limit: 15,
       with_payload: true,
     };
 
-    // Если дата найдена в запросе, добавляем фильтр
     if (targetDate) {
-      searchOptions.filter = {
+      searchParams.filter = {
         must: [{ key: "date", match: { value: targetDate } }],
       };
     }
 
     const searchResult = await qdrant.search(
       "weather_collection",
-      searchOptions
+      searchParams
     );
 
     if (searchResult.length > 0) {
-      console.log(
-        `🔍 Найдено записей: ${searchResult.length} для даты: ${
-          targetDate || "любая"
-        }`
-      );
       return searchResult.map((res) => res.payload.text).join("\n");
     }
-
-    return "Информации о погоде не найдено.";
+    return null;
   } catch (e) {
-    console.error("Ошибка RAG:", e);
-    throw e;
+    console.error("RAG Error:", e);
+    return null;
   }
 }
 
@@ -80,23 +80,28 @@ app.post("/api/chat", async (req, res) => {
     const userMessage = req.body.message;
     const weatherContext = await getWeatherContext(userMessage);
 
+    let prompt;
+    if (weatherContext) {
+      prompt = `Используй ТОЛЬКО эти данные о погоде:
+${weatherContext}
+
+Вопрос: ${userMessage}
+Сегодня: ${TODAY}. Ответ:`;
+    } else {
+      prompt = `Пользователь спрашивает: "${userMessage}". 
+      К сожалению, в нашей базе данных нет информации на этот запрос. 
+      Ответь вежливо, что данных о погоде на этот период нет.`;
+    }
+
     const response = await client.chat({
-      messages: [
-        {
-          role: "system",
-          content: `Ты — погодный эксперт. Твоя задача отвечать на вопросы пользователя, используя только предоставленный контекст. 
-          Если в контексте нет данных для ответа, вежливо сообщи об этом.
-          
-          Контекст из базы данных:
-          ${weatherContext}`,
-        },
-        { role: "user", content: userMessage },
-      ],
+      model: "GigaChat",
+      messages: [{ role: "user", content: prompt }],
     });
 
     res.json({ text: response.choices[0].message.content });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("API Error:", error.message);
+    res.status(500).json({ error: "Ошибка нейросети" });
   }
 });
 
