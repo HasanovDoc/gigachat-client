@@ -2,18 +2,12 @@ const express = require("express");
 const path = require("path");
 const { Agent } = require("https");
 const GigaChat = require("gigachat").default;
+const { QdrantClient } = require("@qdrant/js-client-rest");
+const { pipeline } = require("@xenova/transformers");
 require("dotenv").config({ path: ".env.local" });
-
-// import express from "express";
-// import path from "path";
-// import { Agent } from "https";
-// import GigaChat from "gigachat";
-// import dotenv from "dotenv";
-// dotenv.config({ path: ".env.local" });
 
 const app = express();
 app.use(express.json());
-
 app.use(express.static(path.join(__dirname, "dist")));
 
 const httpsAgent = new Agent({ rejectUnauthorized: false });
@@ -23,78 +17,85 @@ const client = new GigaChat({
   scope: "GIGACHAT_API_PERS",
 });
 
-const functions = [
-  {
-    name: "get_weather",
-    description: "Получает текущую погоду в указанном городе",
-    parameters: {
-      type: "object",
-      properties: {
-        location: { type: "string", description: "Город, например, Москва" },
-      },
-      required: ["location"],
-    },
-  },
-];
+const qdrant = new QdrantClient({ url: "http://localhost:6113" });
 
-async function fetchWeather(city) {
+// let extractor;
+let extractorPromise = pipeline(
+  "feature-extraction",
+  "Xenova/all-MiniLM-L6-v2"
+);
+
+async function getWeatherContext(userQuery) {
   try {
-    const url = `http://api.weatherstack.com/current?access_key=${
-      process.env.WEATHER_API_KEY
-    }&query=${encodeURIComponent(city)}`;
-    const res = await fetch(url);
-    const data = await res.json();
+    const extractor = await extractorPromise;
 
-    if (data.error) return { error: "Город не найден или ошибка API" };
+    // 1. Извлекаем дату из запроса (гггг-мм-дд)
+    const dateMatch = userQuery.match(/\d{4}-\d{2}-\d{2}/);
+    const targetDate = dateMatch ? dateMatch[0] : null;
 
-    return {
-      city: data.location.name,
-      temperature: data.current.temperature + "°C",
-      description: data.current.weather_descriptions[0],
-      wind: data.current.wind_speed + " км/ч",
+    // 2. Генерируем вектор для семантического поиска (по городу/типу погоды)
+    const output = await extractor(userQuery, {
+      pooling: "mean",
+      normalize: true,
+    });
+    const vector = Array.from(output.data);
+
+    // 3. Настраиваем поиск с жестким фильтром по дате
+    const searchOptions = {
+      vector: vector,
+      limit: 15, // Берем все города на эту дату
+      with_payload: true,
     };
+
+    // Если дата найдена в запросе, добавляем фильтр
+    if (targetDate) {
+      searchOptions.filter = {
+        must: [{ key: "date", match: { value: targetDate } }],
+      };
+    }
+
+    const searchResult = await qdrant.search(
+      "weather_collection",
+      searchOptions
+    );
+
+    if (searchResult.length > 0) {
+      console.log(
+        `🔍 Найдено записей: ${searchResult.length} для даты: ${
+          targetDate || "любая"
+        }`
+      );
+      return searchResult.map((res) => res.payload.text).join("\n");
+    }
+
+    return "Информации о погоде не найдено.";
   } catch (e) {
-    console.error(e);
-    return { error: "Ошибка подключения к сервису погоды" };
+    console.error("Ошибка RAG:", e);
+    throw e;
   }
 }
 
 app.post("/api/chat", async (req, res) => {
   try {
+    const userMessage = req.body.message;
+    const weatherContext = await getWeatherContext(userMessage);
+
     const response = await client.chat({
-      messages: [{ role: "user", content: req.body.message }],
-      functions: functions,
-      function_call: "auto",
+      messages: [
+        {
+          role: "system",
+          content: `Ты — погодный эксперт. Твоя задача отвечать на вопросы пользователя, используя только предоставленный контекст. 
+          Если в контексте нет данных для ответа, вежливо сообщи об этом.
+          
+          Контекст из базы данных:
+          ${weatherContext}`,
+        },
+        { role: "user", content: userMessage },
+      ],
     });
 
-    const message = response.choices[0].message;
-
-    if (message.function_call) {
-      const args =
-        typeof message.function_call.arguments === "string"
-          ? JSON.parse(message.function_call.arguments)
-          : message.function_call.arguments;
-
-      const { location } = args;
-      const weatherData = await fetchWeather(location);
-
-      const finalResponse = await client.chat({
-        messages: [
-          { role: "user", content: req.body.message },
-          message,
-          {
-            role: "function",
-            name: "get_weather",
-            content: JSON.stringify(weatherData),
-          },
-        ],
-      });
-
-      return res.json({ text: finalResponse.choices[0].message.content });
-    }
-    res.json({ text: message.content });
+    res.json({ text: response.choices[0].message.content });
   } catch (error) {
-    console.error(error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -127,17 +128,8 @@ app.post("/api/yandex", async (req, res) => {
     );
 
     const data = await response.json();
-
-    if (!response.ok) {
-      console.log("Детальная ошибка Yandex:", JSON.stringify(data, null, 2));
-      throw new Error(data.message || "Ошибка Yandex API");
-    }
-
-    res.json({
-      text: data.result.alternatives[0].message.text,
-    });
+    res.json({ text: data.result.alternatives[0].message.text });
   } catch (error) {
-    console.error("Yandex Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
